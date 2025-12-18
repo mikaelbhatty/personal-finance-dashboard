@@ -1,7 +1,3 @@
-# config.py
-
-# Custom category override rules (THIS is what makes your project unique)
-# Format: ("keyword", "Category Name")
 
 CATEGORY_RULES = [
     ("uber", "Transport"),
