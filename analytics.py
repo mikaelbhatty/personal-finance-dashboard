@@ -1,15 +1,15 @@
-# analytics.py
+
 import pandas as pd
 from config import CATEGORY_RULES
 
 def apply_category_rules(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Build a text field for matching
+    
     df["match_text"] = (
         df["merchant_name"].fillna("") + " " + df["name"].fillna("")
     ).str.lower()
 
-    # Override category using your rules
+    
     df["category_overridden"] = df["category"]
     for keyword, new_cat in CATEGORY_RULES:
         mask = df["match_text"].str.contains(keyword, na=False)
