@@ -1,4 +1,4 @@
-# plaid_utils.py
+
 import datetime as dt
 from typing import Tuple
 
@@ -23,8 +23,6 @@ def create_sandbox_item() -> Tuple[str, str]:
     request = SandboxPublicTokenCreateRequest(
         institution_id="ins_109508",  # First Platypus Bank (sandbox)
         initial_products=[Products("transactions")],
-        # NOTE: sandbox_public_token_create in this SDK version
-        # does NOT accept 'country_codes', so we leave it out.
     )
     response = plaid_client.sandbox_public_token_create(request)
     public_token = response.public_token
