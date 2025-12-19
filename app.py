@@ -7,6 +7,7 @@ import plotly.express as px
 from plaid_utils import create_sandbox_item, fetch_transactions
 from analytics import apply_category_rules, add_cashflow_columns, monthly_summary
 from config import DEFAULT_BUDGETS
+from analytics import classify_transaction_type
 
 st.set_page_config(
     page_title="Personal Finance Dashboard",
@@ -58,6 +59,7 @@ if st.session_state.access_token:
             else:
                 df = apply_category_rules(df)
                 df = add_cashflow_columns(df)
+                df = classify_transaction_type(df)
                 st.session_state["transactions_df"] = df
 
     else:
@@ -71,13 +73,16 @@ if "transactions_df" in st.session_state and df.empty:
 if not df.empty:
     st.subheader("Overview")
 
-    # Filters
+       # Filters
     st.sidebar.subheader("Filters")
     category_options = ["All"] + sorted(df["category_overridden"].dropna().unique().tolist())
     selected_category = st.sidebar.selectbox("Category", category_options)
     merchant_query = st.sidebar.text_input("Search merchant/name", "")
+    exclude_transfers = st.sidebar.checkbox("Exclude transfers/payments from charts", value=True)
 
+    # Start with filtered df
     fdf = df.copy()
+
     if selected_category != "All":
         fdf = fdf[fdf["category_overridden"] == selected_category]
 
@@ -85,8 +90,13 @@ if not df.empty:
         q = merchant_query.lower().strip()
         fdf = fdf[
             fdf["name"].fillna("").str.lower().str.contains(q)
-            | fdf["Merchant"].fillna("").str.lower().str.contains(q)
+            | fdf["merchant_name"].fillna("").str.lower().str.contains(q)
         ]
+
+    # Analysis df (used for charts)
+    fdf_analysis = fdf.copy()
+    if exclude_transfers:
+        fdf_analysis = fdf_analysis[fdf_analysis["txn_type"] != "transfer"]
 
     # Top metrics
     total_income = fdf["income"].sum()
@@ -98,26 +108,58 @@ if not df.empty:
     c2.metric("Spending", f"${total_spend:,.2f}")
     c3.metric("Net Cashflow", f"${net_cashflow:,.2f}")
 
-    # Monthly view
+    # Monthly summary
     st.markdown("## Monthly Summary")
-    msum, _mcat = monthly_summary(fdf)
 
-    colA, colB = st.columns(2)
-    with colA:
-        fig_m = px.bar(msum, x="month", y=["income", "spend", "net"])
-        st.plotly_chart(fig_m, use_container_width=True)
+    msum, _ = monthly_summary(fdf_analysis)
 
-    with colB:
-        cat_spend = (
-            fdf[fdf["spend"] > 0]
-            .groupby("category_overridden")["spend"]
-            .sum()
-            .sort_values(ascending=False)
-            .reset_index()
-        )
-        fig_cat = px.pie(cat_spend, names="category_overridden", values="spend")
-        st.plotly_chart(fig_cat, use_container_width=True)
+    # Income vs Spending (bar chart)
+    fig_m = px.bar(
+        msum,
+        x="month",
+        y=["income", "spend"],
+        barmode="group",
+        labels={"value": "Amount ($)", "month": "Month"}
+    )
+    st.plotly_chart(fig_m, width="stretch")
 
+    # Net cashflow (line chart)
+    fig_net = px.line(
+        msum,
+        x="month",
+        y="net",
+        markers=True,
+        labels={"net": "Net Cashflow ($)", "month": "Month"}
+    )
+    st.plotly_chart(fig_net, width="stretch")
+
+    # Category breakdown (donut: top categories + Other)
+    cat_spend = (
+        fdf_analysis[fdf_analysis["spend"] > 0]
+        .groupby("category_overridden")["spend"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    top_n = 6
+    top = cat_spend.head(top_n)
+    other = cat_spend.iloc[top_n:].sum()
+    if other > 0:
+        top = pd.concat([top, pd.Series({"Other": other})])
+
+    cat_spend_df = top.reset_index()
+    cat_spend_df.columns = ["category_overridden", "spend"]
+
+    fig_cat = px.pie(
+        cat_spend_df,
+        names="category_overridden",
+        values="spend",
+        hole=0.5
+    )
+    fig_cat.update_traces(textposition="inside", textinfo="percent+label")
+    st.plotly_chart(fig_cat, width="stretch")
+
+    
     # Budgets
     st.markdown("## Budgets & Alerts")
 
@@ -163,7 +205,7 @@ if not df.empty:
     month_spend["status"] = month_spend.apply(status_row, axis=1)
 
     st.write(f"**Current month:** {current_month}")
-    st.dataframe(month_spend.sort_values("spend", ascending=False), use_container_width=True, hide_index=True)
+    st.dataframe(month_spend.sort_values("spend", ascending=False), width="stretch", hide_index=True)
 
     # Export
     st.markdown("## Export")
@@ -179,7 +221,7 @@ if not df.empty:
     st.markdown("## Transactions")
     st.dataframe(
         fdf.sort_values("date", ascending=False).reset_index(drop=True),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 else:
